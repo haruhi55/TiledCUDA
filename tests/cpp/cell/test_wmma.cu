@@ -91,14 +91,14 @@ __global__ void test_wmma1(const Element* ga, const Element* gb,
 
     for (int k = 0; k < 2; ++k) {  // iterate over register tile along K
         // transfer data tiles from shared to register
-        copy::copy_2d_tile_s2r(sa_tiles[make_int2(0, 0)], ra);
-        copy::copy_2d_tile_s2r(sb_tiles[make_int2(0, 0)], rb);
+        copy::copy_2d_tile_s2r(sa_tiles(_, k), ra);
+        copy::copy_2d_tile_s2r(sb_tiles(k, _), rb);
 
         compute::gemm2(ra, rb, acc);  // compute at register
     }
 
     // transfer data tile from register to shared
-    copy::copy_2d_tile_r2s(acc, sc_tile[make_int2(0, 0)]);
+    copy::copy_2d_tile_r2s(acc, sc_tile(0, 0));
     __syncthreads();
 
     // transfer data tile from shared to global
