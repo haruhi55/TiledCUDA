@@ -41,8 +41,8 @@ __device__ void init_values(Element* a, Element* b, ElementAcc* c, int M, int N,
                             int K) {
     if (!thread0()) return;
 
-    for (int i = 0; i < M * K; ++i) a[i] = static_cast<Element>(i / 100.);
-    for (int i = 0; i < K * N; ++i) b[i] = static_cast<Element>(i / 100.);
+    for (int i = 0; i < M * K; ++i) a[i] = static_cast<Element>(i / 1000.);
+    for (int i = 0; i < K * N; ++i) b[i] = static_cast<Element>(i / 1000.);
     for (int i = 0; i < M * N; ++i) c[i] = 0.;
 }
 
@@ -141,14 +141,6 @@ void run_test() {
 
     using config = TestTraits<Element, ElementAcc, M, N, K>;
 
-    LOG(INFO) << std::endl
-              << "RegA: [" << config::RegA::kRows << ", " << config::RegA::kCols
-              << "]" << std::endl
-              << "RegB: [" << config::RegB::kRows << ", " << config::RegB::kCols
-              << "]" << std::endl
-              << "RegC: [" << config::RegC::kRows << ", " << config::RegC::kCols
-              << "]" << std::endl;
-
     dim3 dim_grid(1, 1, 1);
     dim3 dim_block(config::kThreads, 1, 1);
     int size_ab = (M + N) * K * sizeof(Element);
@@ -167,6 +159,16 @@ void run_test() {
               typename config::StoreRegC>
         <<<dim_grid, dim_block, shm_size>>>(load_rA, load_rB, store_rC);
     cudaDeviceSynchronize();
+
+    LOG(INFO) << std::endl
+              << "[" << M << ", " << N << ", " << K << "]" << std::endl
+              << "RegA: [" << config::RegA::kRows << ", " << config::RegA::kCols
+              << "]" << std::endl
+              << "RegB: [" << config::RegB::kRows << ", " << config::RegB::kCols
+              << "]" << std::endl
+              << "RegC: [" << config::RegC::kRows << ", " << config::RegC::kCols
+              << "]" << std::endl
+              << "Test passed!" << std::endl;
 }
 
 TEST(TestWmma, test_m16n16k16_f) {
