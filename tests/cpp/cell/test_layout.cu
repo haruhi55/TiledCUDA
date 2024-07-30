@@ -42,6 +42,13 @@ TEST(TestLayout, test_swizzled_layout) {
     using RowMajor = tl::RowMajor<kRows, kCols>;
     using SwizzledRowMajor = tl::Swizzled<RowMajor, 2, 3, 3>;
 
+    int v1 = 1 << 2;
+    LOG(INFO) << "test: " << v1 << std::endl;
+
+    int n = (1 << 2) * (1 << 3) * (1 << 3);
+    LOG(INFO) << "numel:" << SwizzledRowMajor::OrigLayout::kNumel << std::endl
+              << "comp: " << n << std::endl;
+
     auto layout1 = RowMajor{};
     auto layout2 = SwizzledRowMajor{};
 
@@ -62,7 +69,7 @@ TEST(TestLayout, test_swizzled_layout) {
         }
         ss << std::endl;
     }
-    LOG(INFO) << ss.str();
+    // LOG(INFO) << ss.str();
 }
 
 }  // namespace tiledcuda::testing
