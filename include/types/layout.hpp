@@ -24,7 +24,7 @@ enum class Layout {
 };
 
 template <const int kRows_, const int kCols_, const int kRowStride_,
-          const int kColStride_>
+          const int kColStride_, const bool kSwizzled = false>
 struct MatrixLayout {
     static constexpr int kRows = kRows_;
     static constexpr int kCols = kCols_;
@@ -45,12 +45,13 @@ struct MatrixLayout {
     static constexpr int kM = -1;
     static constexpr int kS = -1;
 
-    // FIXME: The current implementation for copying global to shared memory
-    // relies on CuTe's API. This is a temporary workaround to maintain
-    // compatibility with CuTe's APIs. Refactor this implementation in the
-    // future to remove this dependency.
-    using CuteLayout = cute::Layout<Shape<Int<kRows>, Int<kCols>>,
-                                    Stride<Int<kRowStride>, Int<kColStride>>>;
+    // // FIXME: The current implementation for copying global to shared memory
+    // // relies on CuTe's API. This is a temporary workaround to maintain
+    // // compatibility with CuTe's APIs. Refactor this implementation in the
+    // // future to remove this dependency.
+    // using CuteLayout = cute::Layout<Shape<Int<kRows>, Int<kCols>>,
+    //                                 Stride<Int<kRowStride>,
+    //                                 Int<kColStride>>>;
 
     DEVICE int operator()(int i, int j) const {
         return i * kRowStride + j * kColStride;
@@ -72,56 +73,67 @@ using ColMajor = MatrixLayout<kRow, kCol, 1, kStride>;
 //         2^S columns, and each coordinate position has 2^M elements.
 //         Therefore, to apply a swizzle function to a 2D data tile, the data
 //         tile should have a shape that is a multiple of 2^B x 2^S x 2^M.
-template <typename Layout_, const int kB_, const int kM_, const int kS_>
-struct Swizzled {
-    static_assert(
-        Layout_::kNumel % ((1 << kB_) * (1 << kM_) * (1 << kS_)) == 0,
-        "The shape of the data tile should be a multiple of 2^B x 2^S x 2^M.");
+// template <const int kB_, const int kM_, const int kS_>
+// struct Swizzle {
+//     static_assert(
+//         Layout_::kNumel % ((1 << kB_) * (1 << kM_) * (1 << kS_)) == 0,
+//         "The shape of the data tile should be a multiple of 2^B x 2^S x
+//         2^M.");
 
-    static constexpr int kRows = Layout_::kRows;
-    static constexpr int kCols = Layout_::kCols;
+//     static constexpr int kRows = Layout_::kRows;
+//     static constexpr int kCols = Layout_::kCols;
 
-    static constexpr int kRowStride = Layout_::kRowStride;
-    static constexpr int kColStride = Layout_::kColStride;
+//     static constexpr int kRowStride = Layout_::kRowStride;
+//     static constexpr int kColStride = Layout_::kColStride;
 
-    static constexpr int kNumel = Layout_::kNumel;
+//     static constexpr int kNumel = Layout_::kNumel;
 
-    // NOTE: Swizzling can be considered as either a row-major or column-major
-    // layout. Since it does not affect subsequent load or store operations and
-    // to avoid repeated code, we set the layout type to be the same as the
-    // original layout.
-    static constexpr Layout kType = Layout::kRowMajor;
+//     // NOTE: Swizzling can be considered as either a row-major or
+//     column-major
+//     // layout. Since it does not affect subsequent load or store operations
+//     and
+//     // to avoid repeated code, we set the layout type to be the same as the
+//     // original layout.
+//     static constexpr Layout kType = Layout::kRowMajor;
 
-    static constexpr bool kSwizzled = true;
-    static constexpr int kB = kB_;
-    static constexpr int kM = kM_;
-    static constexpr int kS = kS_;
+//     static constexpr bool kSwizzled = true;
+//     static constexpr int kB = kB_;
+//     static constexpr int kM = kM_;
+//     static constexpr int kS = kS_;
 
-    // FIXME(haruhi): this should be tested on swizzled column major layout.
-    static constexpr int kSwizzledRow = 1 << kS;
-    static constexpr int kSwizzledCol = (1 << kB) * (1 << kM);
+//     // FIXME(haruhi): this should be tested on swizzled column major layout.
+//     static constexpr int kSwizzledRow = 1 << kS;
+//     static constexpr int kSwizzledCol = (1 << kB) * (1 << kM);
 
-    static constexpr int kSwizzledRowStride =
-        kType == Layout::kRowMajor ? kSwizzledCol : 1;
-    static constexpr int kSwizzledColStride =
-        kType == Layout::kRowMajor ? 1 : kSwizzledRow;
+//     // static constexpr int kSwizzledRowStride =
+//     //     kType == Layout::kRowMajor ? kSwizzledCol : 1;
+//     // static constexpr int kSwizzledColStride =
+//     //     kType == Layout::kRowMajor ? 1 : kSwizzledRow;
 
-    using LayoutAtom = decltype(composition(
-        cute::Swizzle<kB, kM, kS>{},
-        cute::Layout<
-            Shape<Int<kSwizzledRow>, Int<kSwizzledCol>>,
-            Stride<Int<kSwizzledRowStride>, Int<kSwizzledColStride>>>{}));
+//     // FIXME: row major
+//     using Layout = Layout_;
+//     using SwizzleFunc = cute::Swizzle<kB, kM, kS>{};
 
-    using CuteLayout = decltype(tile_to_shape(
-        LayoutAtom{}, cute::Shape<Int<Layout_::kRows>, Int<Layout_::kCols>>{}));
+//     using LayoutAtom = decltype(composition(
+//         cute::Swizzle<kB, kM, kS>{},
+//         cute::Layout<
+//             Shape<Int<kSwizzledRow>, Int<kSwizzledCol>>,
+//             Stride<Int<kSwizzledRowStride>, Int<kSwizzledColStride>>>{}));
 
-    DEVICE Swizzled() : layout_(CuteLayout{}) {}
+//     // using CuteLayout = decltype(tile_to_shape(
+//     //     LayoutAtom{}, cute::Shape<Int<Layout_::kRows>,
+//     //     Int<Layout_::kCols>>{}));
 
-    DEVICE int operator()(int i, int j) const { return layout_(i, j); }
+//     DEVICE Swizzled() : layout_(Layout{}, SwizzleFunc{}) {}
 
-  private:
-    CuteLayout layout_;
-};
+//     DEVICE int operator()(int i, int j) const {
+//         return swizzle_(layout_(i, j));
+//     }
+
+//   private:
+//     Layout layout_;
+//     SwizzleFunc swizzle_;
+// };
 
 template <typename Layout>
 static constexpr size_t num_rows = Layout::kRows;

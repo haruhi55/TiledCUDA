@@ -10,17 +10,42 @@ namespace tiledcuda::cell::copy {
 using namespace traits;
 namespace tl = tile_layout;
 
-template <typename Global, typename Shared, typename WarpLayout,
-          const tl::Layout kType>
+namespace {
+template <typename Element, typename SrcLayout, typename DstLayout,
+          typename TiledCopy>
+DEVICE void copy_base_tile_g2s(const Element* src_data, Element* dst_data,
+                               SrcLayout src_layout, DstLayout dst_layout,
+                               TiledCopy tiled_copy) {
+    int tid = threadIdx.x;
+
+    auto gtile = make_tensor(make_gmem_ptr(src_data), src_layout);
+    auto stile = make_tensor(make_smem_ptr(dst_data), dst_layout);
+
+    auto loader = tiled_copy.get_thread_slice(tid);
+
+    auto src = loader.partition_S(gtile);
+    auto dst = loader.partition_D(stile);
+
+#pragma unroll
+    for (int i = 0; i < int(size<1>(src)); ++i)
+#pragma unroll
+        for (int j = 0; j < int(size<2>(src)); ++j)
+            cute::copy(tiled_copy, src(_, i, j), dst(_, i, j));
+}
+}  // namespace
+
+template <typename Global, typename Shared, const int kRowExec,
+          const int kColExec, typename WarpLayout, const tl::Layout kType>
 struct GlobalToSharedLoaderImpl {
     using DType = Global::DType;
 
     DEVICE void operator()(const DType* src, DType* dst);
 };
 
-template <typename Global_, typename Shared_, typename WarpLayout_>
-struct GlobalToSharedLoaderImpl<Global_, Shared_, WarpLayout_,
-                                tl::Layout::kRowMajor> {
+template <typename Global_, typename Shared_, const int kRowExec,
+          const int kColExec, typename WarpLayout_>
+struct GlobalToSharedLoaderImpl<Global_, Shared_, kRowExec, kColExec,
+                                WarpLayout, tl::Layout::kRowMajor> {
     using Global = Global_;
     using Shared = Shared_;
     static_assert(Global::kRows == Shared::kRows &&
@@ -30,12 +55,11 @@ struct GlobalToSharedLoaderImpl<Global_, Shared_, WarpLayout_,
     using DType = Global::DType;
 
     using WarpLayout = WarpLayout_;
-    // TODO: configuration for how threads are laid out in a single warp,
-    // hard-coded it for now. Make it configurable in future implementation.
-    // In the row-major layout, columns are contiguous in memory. 4 threads in a
+
+    // In the row-major layout, columns are contiguous in memory. 2 threads in a
     // warp access data along the continguous dimension (columns), and 8 warps
     // access data along the strided dimension (rows).
-    using WarpThreadLayout = tl::RowMajor<8, 4>;
+    using WarpThreadLayout = tl::RowMajor<16, 2>;
     static constexpr int kThreadRows =
         tl::num_rows<WarpLayout> * tl::num_rows<WarpThreadLayout>;
     static constexpr int kThreadCols =
@@ -57,27 +81,35 @@ struct GlobalToSharedLoaderImpl<Global_, Shared_, WarpLayout_,
     using CopyInst = Copy_Atom<DefaultCopy, DType>;
 #endif
 
-    using GlobalLayout = Global::Layout::CuteLayout;
-    using SharedLayout = Shared::Layout::CuteLayout;
+    using BaseShape = traits::BaseTileShape<DType>;
+
+    // using GlobalLayout = Global::Layout::CuteLayout;
+    // using SharedLayout = Shared::Layout::CuteLayout;
+    // using TiledCopy = decltype(make_tiled_copy(
+    //     CopyInst{},
+    //     cute::Layout<Shape<Int<kThreadRows>, Int<kThreadCols>>,
+    //                  Stride<Int<kThreadCols>, _1>>{},
+    //     cute::Layout<Shape<_1, Int<kNumPerAccess>>>{}));
+
     using TiledCopy = decltype(make_tiled_copy(
         CopyInst{},
-        cute::Layout<Shape<Int<kThreadRows>, Int<kThreadCols>>,
-                     Stride<Int<kThreadCols>, _1>>{},
+        cute::Layout<Shape<Int<BaseShape::kRows>, Int<Baseshape::kCols>>,
+                     Stride<Int<BaseShape::kCols>, _1>>{},
         cute::Layout<Shape<_1, Int<kNumPerAccess>>>{}));
 
-    DEVICE GlobalToSharedLoaderImpl()
-        : src_layout_(GlobalLayout{}),
-          dst_layout_(SharedLayout{}),
-          tiled_copy_(TiledCopy{}) {}
+    // DEVICE GlobalToSharedLoaderImpl()
+    //     : src_layout_(GlobalLayout{}),
+    //       dst_layout_(SharedLayout{}),
+    //       tiled_copy_(TiledCopy{}) {}
 
     DEVICE void operator()(const DType* src, DType* dst) {
-        copy_2d_tile_g2s(src, dst, src_layout_, dst_layout_, tiled_copy_);
+        copy_base_tile_g2s(src, dst, src_layout_, dst_layout_, tiled_copy_);
     }
 
-  private:
-    GlobalLayout src_layout_;
-    SharedLayout dst_layout_;
-    TiledCopy tiled_copy_;
+    //   private:
+    //     GlobalLayout src_layout_;
+    //     SharedLayout dst_layout_;
+    //     TiledCopy tiled_copy_;
 };
 
 template <typename Global, typename Shared, typename WarpLayout,
@@ -105,7 +137,7 @@ struct SharedToGlobalStorerImpl<Global_, Shared_, WarpLayout_,
     // In the row-major layout, columns are contiguous in memory. 4 threads in a
     // warp access data along the continguous dimension (columns), and 8 warps
     // access data along the strided dimension (rows).
-    using WarpThreadLayout = tl::RowMajor<8, 4>;
+    using WarpThreadLayout = tl::RowMajor<16, 2>;
     static constexpr int kThreadRows =
         tl::num_rows<WarpLayout> * tl::num_rows<WarpThreadLayout>;
     static constexpr int kThreadCols =
@@ -124,12 +156,16 @@ struct SharedToGlobalStorerImpl<Global_, Shared_, WarpLayout_,
     // while transfer data from shared memory to global memory does not
     // have. For the latter case, the copy instruction should be the
     // default one.
+    using BaseShape = traits::BaseTileShape<DType>;
+
     using GlobalLayout = Global::Layout::CuteLayout;
     using SharedLayout = Shared::Layout::CuteLayout;
+
+    // copy a 16x16 BaseTile, using CuTe's tiled_copy
     using TiledCopy = decltype(make_tiled_copy(
         Copy_Atom<DefaultCopy, DType>{},
-        cute::Layout<Shape<Int<kThreadRows>, Int<kThreadCols>>,
-                     Stride<Int<kThreadCols>, _1>>{},
+        cute::Layout<Shape<Int<BaseShape::kRows>, Int<BaseShape::kCols>>,
+                     Stride<Int<BaseShape::kCols>, _1>>{},
         cute::Layout<Shape<_1, Int<kNumPerAccess>>>{}));
 
     DEVICE SharedToGlobalStorerImpl()
@@ -155,6 +191,10 @@ struct GlobalToSharedLoader {
     using WarpLayout = WarpLayout_;
 
     static constexpr tl::Layout kType = kType_;
+    using BaseShape = BaseTileShape<DType>;
+
+    static constexpr int kRowExec = Shared::Layout::kRows / BaseShape::kRows;
+    static constexpr int kColExec = Shared::Layout::kCols / BaseShape::kCols;
 
     template <typename Global>
     DEVICE void operator()(const Global& src, Shared& dst) {
@@ -162,7 +202,7 @@ struct GlobalToSharedLoader {
         DType* dst_ptr = dst.mutable_data();
 
         using Loader =
-            GlobalToSharedLoaderImpl<Global, Shared, WarpLayout, kType>;
+            GlobalToSharedLoaderImpl<Global, Shared, kRowExec, kColExec, kType>;
 
         Loader loader;
         loader(src_ptr, dst_ptr);

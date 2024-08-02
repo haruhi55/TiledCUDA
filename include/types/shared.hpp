@@ -7,7 +7,7 @@ namespace tiledcuda::cell {
 
 namespace tl = tile_layout;
 
-template <typename Element_, typename Layout_>
+template <typename Element_, typename Layout_, const int bool kSwizzled = false>
 class SharedTile {
   public:
     using DType = Element_;
