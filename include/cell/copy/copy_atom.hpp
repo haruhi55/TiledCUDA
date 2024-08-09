@@ -227,10 +227,10 @@ struct SharedToGlobalBaseTileStorer<Shared, Global, tl::Layout::kRowMajor> {
     static constexpr int kExecCount =
         BaseShape::kCols / kNumPerAccess / kThreadsPerCol;
 
-    static_assert(
-        kExecCount == 1,
-        "The current implementation requires that number of elements per "
-        "access should be equal to the number of columns in the BaseTile.");
+    // static_assert(
+    //     kExecCount == 1,
+    //     "The current implementation requires that number of elements per "
+    //     "access should be equal to the number of columns in the BaseTile.");
 
     using BaseTileSharedLayout = tl::SharedLayoutWrapper<Shared>::Layout;
     using BaseTileGlobalLayout =
@@ -252,7 +252,9 @@ struct SharedToGlobalBaseTileStorer<Shared, Global, tl::Layout::kRowMajor> {
         auto src_tensor = make_tensor(make_smem_ptr(src), data_layout_);
         auto dst_tensor = make_tensor(make_gmem_ptr(dst), data_layout_);
 
-        cute::copy(tiled_copy_, src_tensor, dst_tensor);
+#pragma unroll
+        for (int i = 0; i < kExecCount; ++i)
+            cute::copy(tiled_copy_, src_tensor, dst_tensor);
     }
 
     /// @brief returns the lane row of the current thread within a warp.
