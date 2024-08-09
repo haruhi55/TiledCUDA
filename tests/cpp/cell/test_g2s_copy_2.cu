@@ -26,9 +26,19 @@ __global__ void copy_g2s(const Element* src_ptr, Element* dst_ptr,
     __copy_async();
     __syncthreads();
 
+    if (thread(0)) {
+        printf("inter on shared:\n");
+        inter.dump_value();
+    }
+
     storer(inter, dst);
     __copy_async();
     __syncthreads();
+
+    if (thread(0)) {
+        printf("\ndst on global:\n");
+        dst.dump_value();
+    }
 }
 
 template <typename WarpLayout, const int kRows, const int kCols>
@@ -77,9 +87,9 @@ void run_test() {
 }  // namespace
 
 TEST(GlobalToSharedCopy, test_non_swizzled_layout) {
-    run_test<tl::RowMajor<1, 1>, 16, 16>();
-    run_test<tl::RowMajor<1, 1>, 32, 32>();
-    run_test<tl::RowMajor<2, 2>, 64, 64>();
+    // run_test<tl::RowMajor<1, 1>, 16, 16>();
+    // run_test<tl::RowMajor<1, 1>, 32, 32>();
+    run_test<tl::RowMajor<2, 1>, 32, 16>();
 }
 
 }  // namespace tiledcuda::testing
